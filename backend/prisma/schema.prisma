@@ -1,0 +1,73 @@
+// This is your Prisma schema file.
+// Run `npx prisma migrate dev --name init` after making changes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// A user (managed by Clerk — we just store the Clerk user ID)
+model User {
+  id        String   @id               // Clerk user ID (e.g. "user_2abc...")
+  createdAt DateTime @default(now())
+  picks     Pick[]
+}
+
+// An NBA or NFL game fetched from the Odds API
+model Game {
+  id          String        @id          // Odds API game ID
+  sport       String                     // "basketball_nba" | "americanfootball_nfl"
+  homeTeam    String
+  awayTeam    String
+  commenceTime DateTime                  // Scheduled start time
+  isLive      Boolean       @default(false)
+  isCompleted Boolean       @default(false)
+  homeWon     Boolean?                   // Null until game ends
+
+  picks       Pick[]
+  snapshots   OddsSnapshot[]
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+// A point-in-time snapshot of the win probability for a game.
+// The cron job writes one of these every 30s during live games.
+model OddsSnapshot {
+  id              Int      @id @default(autoincrement())
+  gameId          String
+  game            Game     @relation(fields: [gameId], references: [id])
+
+  // Raw moneyline odds from the bookmaker (American format, e.g. -165)
+  homeOdds        Float
+  awayOdds        Float
+
+  // Derived win probabilities (0.0 to 1.0) — calculated by our formula
+  homeWinProb     Float
+  awayWinProb     Float
+
+  timestamp       DateTime @default(now())
+
+  @@index([gameId, timestamp])
+}
+
+// A user's pick on a game (must be submitted before commenceTime)
+model Pick {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  gameId    String
+  game      Game     @relation(fields: [gameId], references: [id])
+
+  pickedTeam String   // "home" | "away"
+  isCorrect  Boolean? // Null until game ends, then graded
+
+  createdAt  DateTime @default(now())
+
+  // One pick per user per game
+  @@unique([userId, gameId])
+}
